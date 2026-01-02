@@ -1,0 +1,633 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CI/CD pipelines for fourdist SAM application with develop, qa, and main environments.
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: fourdist
+    Description: The name of the application.
+  ApplicationStageName:
+    Type: String
+    Default: cicd
+    Description: The stage name for CI/CD resources.
+  GitHubConnectionArn:
+    Type: String
+    Description: The ARN of the AWS CodeStar Connection to Github.
+  GitHubRepoName:
+    Type: String
+    Description: The name of the Github repository (e.g., your-group/your-repo).
+  ArtifactBucket:
+    Type: String
+    Description: The S3 bucket for storing pipeline artifacts.
+  StackName:
+    Type: String
+    Description: The name of the CloudFormation stack for fourdist SAM application.
+Resources:
+  # IAM Role for the CodePipeline
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-${ApplicationStageName}-CodePipelineRole'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ArtifactBucket}'
+                  - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource: !Ref GitHubConnectionArn
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: 
+                  - !GetAtt ProductionBuildProject.Arn
+                  - !GetAtt QABuildProject.Arn
+                  - !GetAtt DevelopBuildProject.Arn
+                  - !GetAtt ProductionDeployProject.Arn
+                  - !GetAtt QADeployProject.Arn
+                  - !GetAtt DevelopDeployProject.Arn
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:GetTemplate'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt CloudFormationDeployRole.Arn
+
+  # IAM Role for CloudFormation deployments (used by the pipeline)
+  CloudFormationDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-${ApplicationStageName}-CloudFormationRole'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: CloudFormationDeployPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:*'
+                  - 'iam:*'
+                  - 'lambda:*'
+                  - 's3:*'
+                  - 'dynamodb:*'
+                  - 'apigateway:*'
+                  - 'cognito-idp:*'
+                  - 'ecr:*'
+                  - 'cognito-identity:*'
+                  - 'logs:*'
+                  - 'events:*'
+                  - 'states:*'
+                  - 'appsync:*'
+                  - 'sqs:*'
+                Resource: '*'
+  
+  # CodeBuild Project for building and packaging the SAM app
+  DevelopBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${ApplicationName}-dev-build'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.13
+              commands:
+                - pip install --upgrade pip --quiet
+                - pip install --upgrade aws-sam-cli --quiet
+                - echo "Python version:" && python --version
+                - echo "AWS CLI version:" && aws --version
+                - echo "SAM CLI version:" && sam --version
+            build:
+              commands:
+                - echo "Building SAM application..."
+                - cd backend/sam
+                - sam build --parallel --cached --config-env dev
+                - echo "Packaging SAM application..."
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+          cache:
+            paths:
+              - '/root/.cache/pip/**/*'
+              - '/root/.sam/**/*'
+          artifacts:
+            files:
+              - backend/sam/packaged.yaml
+              - backend/sam/samconfig.toml
+            name: BuildArtifact
+
+  QABuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${ApplicationName}-qa-build'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.13
+              commands:
+                - pip install --upgrade pip --quiet
+                - pip install --upgrade aws-sam-cli --quiet
+                - echo "Python version:" && python --version
+                - echo "AWS CLI version:" && aws --version
+                - echo "SAM CLI version:" && sam --version
+            build:
+              commands:
+                - echo "Building SAM application..."
+                - cd backend/sam
+                - sam build --parallel --cached --config-env qa
+                - echo "Packaging SAM application..."
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+          cache:
+            paths:
+              - '/root/.cache/pip/**/*'
+              - '/root/.sam/**/*'
+          artifacts:
+            files:
+              - backend/sam/packaged.yaml
+              - backend/sam/samconfig.toml
+            name: BuildArtifact
+
+  ProductionBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${ApplicationName}-prod-build'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.13
+              commands:
+                - pip install --upgrade pip --quiet
+                - pip install --upgrade aws-sam-cli --quiet
+                - echo "Python version:" && python --version
+                - echo "AWS CLI version:" && aws --version
+                - echo "SAM CLI version:" && sam --version
+            build:
+              commands:
+                - echo "Building SAM application..."
+                - cd backend/sam
+                - sam build --parallel --cached --config-env prod
+                - echo "Packaging SAM application..."
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+          cache:
+            paths:
+              - '/root/.cache/pip/**/*'
+              - '/root/.sam/**/*'
+          artifacts:
+            files:
+              - backend/sam/packaged.yaml
+              - backend/sam/samconfig.toml
+            name: BuildArtifact
+
+  # Deploy Projects for each environment
+  DevelopDeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${ApplicationName}-dev-deploy'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.13
+              commands:
+                - pip install --upgrade pip --quiet
+                - pip install --upgrade aws-sam-cli --quiet
+            build:
+              commands:
+                - echo "Deploying to dev environment..."
+                - cd backend/sam
+                - sam deploy -t packaged.yaml --config-env dev --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
+
+  QADeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${ApplicationName}-qa-deploy'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.13
+              commands:
+                - pip install --upgrade pip --quiet
+                - pip install --upgrade aws-sam-cli --quiet
+            build:
+              commands:
+                - echo "Deploying to qa environment..."
+                - cd backend/sam
+                - sam deploy -t packaged.yaml --config-env qa --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
+
+  ProductionDeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${ApplicationName}-prod-deploy'
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.13
+              commands:
+                - pip install --upgrade pip --quiet
+                - pip install --upgrade aws-sam-cli --quiet
+            build:
+              commands:
+                - echo "Deploying to prod environment..."
+                - cd backend/sam
+                - sam deploy -t packaged.yaml --config-env prod --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-${ApplicationStageName}-CodeBuildRole'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ArtifactBucket}'
+                  - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ApplicationName}-*'
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:*'
+                  - 'iam:*'
+                  - 'ecr:*'
+                  - 'lambda:*'
+                  - 's3:*'
+                  - 'dynamodb:*'
+                  - 'apigateway:*'
+                  - 'cognito-idp:*'
+                  - 'cognito-identity:*'
+                  - 'logs:*'
+                  - 'events:*'
+                  - 'states:*'
+                  - 'sqs:*'
+                  - 'appsync:*'
+                  - 'route53:*'
+                  - 'cloudfront:*'
+                  - 'acm:*'
+                  - 'secretsmanager:*'
+                  - 'kms:*'
+                Resource: '*'
+
+  # Development Pipeline (develop branch)
+  DevelopPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${ApplicationName}-dev-pipeline'
+      PipelineType: V2
+      ExecutionMode: QUEUED
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration: 
+            SourceActionName: GitHub
+            Push:
+              - Branches: 
+                  Excludes: 
+                    - qa
+                    - main
+                  Includes: 
+                    - develop
+                FilePaths: 
+                  Includes: 
+                    - backend/sam/**
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Configuration:
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref GitHubRepoName
+                BranchName: develop
+              Namespace: SourceVariables
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: BuildAndPackage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref DevelopBuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              Namespace: BuildVariables
+              RunOrder: 1
+        - Name: ApprovalForDevelop
+          Actions:
+            - Name: ManualApprovalForDevelop
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: 1
+              Configuration:
+                CustomData: 'Please review and approve deployment to Develop environment'
+        - Name: Deploy
+          Actions:
+            - Name: DeployDev
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref DevelopDeployProject
+              InputArtifacts:
+                - Name: BuildArtifact
+
+  # QA Pipeline (qa branch)
+  QAPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${ApplicationName}-qa-pipeline'
+      PipelineType: V2
+      ExecutionMode: QUEUED
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration: 
+            SourceActionName: GitHub
+            Push:
+              - Branches: 
+                  Excludes: 
+                    - develop
+                    - main
+                  Includes: 
+                    - qa
+                FilePaths: 
+                  Includes: 
+                    - backend/sam/**
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Configuration:
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref GitHubRepoName
+                BranchName: qa
+                OutputArtifactFormat: CODE_ZIP
+        - Name: Build
+          Actions:
+            - Name: BuildAndPackage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref QABuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: ApprovalForQA
+          Actions:
+            - Name: ManualApprovalForQA
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: 1
+              Configuration:
+                CustomData: 'Please review and approve deployment to QA environment'
+        - Name: Deploy
+          Actions:
+            - Name: DeployQA
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref QADeployProject
+              InputArtifacts:
+                - Name: BuildArtifact
+
+  # Production Pipeline (main branch)
+  ProductionPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub '${ApplicationName}-prod-pipeline'
+      PipelineType: V2
+      ExecutionMode: QUEUED
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration: 
+            SourceActionName: GitHub
+            Push:
+              - Branches: 
+                  Excludes: 
+                    - qa
+                    - develop
+                  Includes: 
+                    - main
+                FilePaths: 
+                  Includes: 
+                    - backend/sam/**
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Configuration:
+                ConnectionArn: !Ref GitHubConnectionArn
+                FullRepositoryId: !Ref GitHubRepoName
+                BranchName: main
+                OutputArtifactFormat: CODE_ZIP
+        - Name: Build
+          Actions:
+            - Name: BuildAndPackage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref ProductionBuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: ApprovalForProduction
+          Actions:
+            - Name: ManualApprovalForProd
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: 1
+              Configuration:
+                CustomData: 'Please review and approve deployment to PRODUCTION environment'
+        - Name: Deploy
+          Actions:
+            - Name: DeployProduction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref ProductionDeployProject
+              InputArtifacts:
+                - Name: BuildArtifact
