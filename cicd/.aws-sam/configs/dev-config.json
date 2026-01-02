@@ -1,0 +1,6 @@
+{
+  "Parameters": {
+    "ApplicationName": "fourdist",
+    "ApplicationStageName": "dev"
+  }
+}
