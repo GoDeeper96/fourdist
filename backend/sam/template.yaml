@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM template for fourdist libreoffice converter service (container-based Lambda)
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: fourdist
+  Stage:
+    Type: String
+    Default: dev
+  ImageRepository:
+    Type: String
+    Description: ECR repository URI (e.g. 123456789012.dkr.ecr.us-west-2.amazonaws.com/libreoffice-converter)
+  ImageTag:
+    Type: String
+    Default: latest
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket used by the pipeline / function for temporary storage
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 2048
+    Runtime: python3.11
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+
+Resources:
+
+  ServerlessApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Stage
+      Cors: true
+      EndpointConfiguration: REGIONAL
+
+  LibreofficeConverterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ApplicationName}-${Stage}-libreoffice-converter'
+      PackageType: Image
+      ImageUri: !Sub '${ImageRepository}:${ImageTag}'
+      Events:
+        Convert:
+          Type: Api
+          Properties:
+            Path: /convert
+            Method: post
+            RestApiId: !Ref ServerlessApi
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref ArtifactBucket
+          TMP_DIR: /tmp
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - !Sub 'arn:aws:s3:::${ArtifactBucket}'
+                - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
+        - AWSLambdaBasicExecutionRole
+
+  ConversionPermissions:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-${Stage}-conversion-adapter-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      # This role is created for future expansion (invoke other services, step functions, etc.)
+      Policies: []
+
+Outputs:
+  ApiEndpoint:
+    Description: "Invoke URL for the converter API"
+    Value: !Sub 'https://${ServerlessApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
+  ConverterFunctionArn:
+    Description: "Lambda function ARN"
+    Value: !GetAtt LibreofficeConverterFunction.Arn
