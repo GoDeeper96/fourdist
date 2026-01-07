@@ -2,92 +2,583 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: SAM template for fourdist libreoffice converter service (container-based Lambda)
 
-Parameters:
-  ApplicationName:
-    Type: String
-    Default: fourdist
-  Stage:
-    Type: String
-    Default: dev
-  ImageRepository:
-    Type: String
-    Description: ECR repository URI (e.g. 123456789012.dkr.ecr.us-west-2.amazonaws.com/libreoffice-converter)
-  ImageTag:
-    Type: String
-    Default: latest
-  ArtifactBucket:
-    Type: String
-    Description: S3 bucket used by the pipeline / function for temporary storage
+
 
 Globals:
   Function:
-    Timeout: 900
-    MemorySize: 2048
-    Runtime: python3.11
+    Timeout: 600
+    MemorySize: 1024
+    Tracing: Active
+    Runtime: python3.13
+    Handler: app.lambda_handler
     Environment:
       Variables:
-        STAGE: !Ref Stage
+        application: !Ref ApplicationName
+        stage: !Ref ApplicationStageName
+    Api:
+      TracingEnabled: true
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: distribution
+    Description: Name of the application
+  ApplicationStageName:
+    Type: String
+    Default: dev
+    Description: Stage name (dev, prod, local, etc.)
+  DomainBaseName:
+    Type: String
+    Default: fordist.com
+    Description: "Dominio base (ejemplo: fordist.com)"
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket used by the pipeline / function for temporary storage
+  CertificateArn:
+    Type: String
+    Default:  arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4
+    Description: "ARN del certificado ACM emitido en us-west-2 para el dominio base"
+
+Conditions:
+  IsDev: !Equals [!Ref ApplicationStageName, "dev"]
+  IsProd: !Equals [!Ref ApplicationStageName, "prod"]
+  IsLocal: !Equals [!Ref ApplicationStageName, "local"]
+  IsProd: !Equals [ !Ref ApplicationStageName, "Prod"]
+  IsNonProd: !Or
+    - !Equals [ !Ref ApplicationStageName, "dev" ]
+    - !Equals [ !Ref ApplicationStageName, "qa" ]
+
 
 Resources:
-
-  ServerlessApi:
+  FdistApiGateway:
     Type: AWS::Serverless::Api
     Properties:
-      StageName: !Ref Stage
-      Cors: true
-      EndpointConfiguration: REGIONAL
-
-  LibreofficeConverterFunction:
-    Type: AWS::Serverless::Function
+      Name: !Sub "${ApplicationName}-${ApplicationStageName}-api"
+      StageName: !Ref ApplicationStageName
+      TracingEnabled: !If [IsLocal, false, true]
+      BinaryMediaTypes:
+        - "multipart/form-data"
+        - "application/octet-stream"
+        - "image/*"
+      MethodSettings:
+        - DataTraceEnabled: True
+          LoggingLevel: INFO
+          MetricsEnabled: True
+          ResourcePath: '/*'
+          HttpMethod: '*'
+          ThrottlingBurstLimit: 5000  #requests per second per aws account for this api
+          ThrottlingRateLimit: 10000 #requests per second per aws account for this api
+      Domain: 
+        BasePath:
+          - !Ref ApplicationStageName
+        CertificateArn: !Ref CertificateArn
+        DomainName: !Sub api-${ApplicationName}-${ApplicationStageName}.${DomainBaseName}
+        EndpointConfiguration: REGIONAL
+        SecurityPolicy: TLS_1_2
+      # Auth:
+      #   AddDefaultAuthorizerToCorsPreflight: False
+      #   Authorizers:
+      #     CognitoAuthorizer:
+      #       UserPoolArn: !GetAtt SafeHRUserPool.Arn
+      #   UsagePlan:
+      #     UsagePlanName: !Join [ "-", [ !Ref ApplicationName, !Ref ApplicationStageName, usage, plan]]
+      #     CreateUsagePlan: PER_API
+      #     Description: Usage plan for Noe API operations
+      #     Quota:
+      #       Limit: 100000
+      #       Period: DAY
+      #     Throttle:
+      #       BurstLimit: 5000 #requests per second per usageplan for this api
+      #       RateLimit: 10000 #requests per second per usageplan for this api
+  # DynamoDBLayer:
+  #   Type: AWS::Serverless::LayerVersion
+  #   Properties:
+  #     LayerName: !Join ["-", [!Ref ApplicationName, !Ref ApplicationStageName, dynamodb, layer]]
+  #     Description: Get dynamodb pynamodb in layers
+  #     ContentUri: layers/sst/dynamodb/
+  #     CompatibleRuntimes:
+  #       - python3.13
+  #     RetentionPolicy: Delete
+  #   Metadata:
+  #     BuildMethod: python3.13
+  FdistApiDNSRecord:
+    Type: AWS::Route53::RecordSet
     Properties:
-      FunctionName: !Sub '${ApplicationName}-${Stage}-libreoffice-converter'
-      PackageType: Image
-      ImageUri: !Sub '${ImageRepository}:${ImageTag}'
-      Events:
-        Convert:
-          Type: Api
-          Properties:
-            Path: /convert
-            Method: post
-            RestApiId: !Ref ServerlessApi
-      Environment:
-        Variables:
-          S3_BUCKET: !Ref ArtifactBucket
-          TMP_DIR: /tmp
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:PutObject
-                - s3:ListBucket
-              Resource:
-                - !Sub 'arn:aws:s3:::${ArtifactBucket}'
-                - !Sub 'arn:aws:s3:::${ArtifactBucket}/*'
-        - AWSLambdaBasicExecutionRole
+      HostedZoneName: fordist.com.
+      Name: !Sub api-${ApplicationName}-${ApplicationStageName}.${DomainBaseName}
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt FdistApiGateway.DomainName.RegionalDomainName
+        HostedZoneId: !GetAtt FdistApiGateway.DomainName.RegionalHostedZoneId 
 
-  ConversionPermissions:
+  GeneralBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      # Handler: app.lambda_handler
+      # Runtime: python3.13
+      BucketName: !Sub "${ApplicationName}-${ApplicationStageName}-company-logos-sst"
+      # Removed AccessControl: PublicRead - this is the problem
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3600
+
+  LambdaGeneralRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${ApplicationName}-${Stage}-conversion-adapter-role'
+      RoleName: !Sub "${ApplicationName}-${ApplicationStageName}-lambda-role"
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - lambda.amazonaws.com
+                - states.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !If [IsLocal, !Ref AWS::NoValue, "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"]
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:CreateTable"
+                  - "dynamodb:DescribeTable"
+                  - "dynamodb:GetItem"
+                  - "dynamodb:PutItem"
+                  - "dynamodb:UpdateItem"
+                  - "dynamodb:DeleteItem"
+                  - "dynamodb:Scan"
+                  - "dynamodb:Query"
+                  - "dynamodb:BatchGetItem"
+                  - "dynamodb:BatchWriteItem"
+                Resource: "*"
+
+        # - PolicyName: ECRAccess
+        #   PolicyDocument:
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - ecr:DescribeRepositories
+        #           - ecr:DescribeImages
+        #           - ecr:GetDownloadUrlForLayer
+        #           - ecr:BatchGetImage
+        #           - ecr:BatchCheckLayerAvailability
+        #           - ecr:ListImages
+        #           - ecr:GetRepositoryPolicy
+        #           - ecr:SetRepositoryPolicy
+        #         Resource: "*"
+        # - PolicyName: SQSAccess
+        #   PolicyDocument:
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - "sqs:ReceiveMessage"
+        #           - "sqs:DeleteMessage"
+        #           - "sqs:GetQueueAttributes"
+        #         Resource: 
+        #           - !GetAtt FourDistQueue.Arn
+        - PolicyName: S3Access
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                  - "s3:GetObjectAcl"
+                  - "s3:PutObjectAcl"
+                  - s3:PutObjectTagging
+                  - s3:GetObjectTagging
+                  - "s3:GetObjectVersion"
+                Resource: 
+                  - !Sub "${GeneralBucket.Arn}/*"
+                  # - !Sub "${SafeHrFilesBucket.Arn}/*"
+                  # - !Sub "${BulkUploadBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - "s3:ListBucket"
+                Resource: 
+                  - !GetAtt GeneralBucket.Arn
+                  # - !GetAtt SafeHrFilesBucket.Arn
+                  # - !GetAtt BulkUploadBucket.Arn
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: 
+                - "ses:SendEmail"
+                - "ses:SendRawEmail"
+                - "ses:SendBulkTemplatedEmail"
+                
+                Resource: "*"
+        # - PolicyName: StepFunctionsLambdaPolicy
+        #   PolicyDocument:
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - lambda:InvokeFunction
+        #         Resource: "*"
+        # - PolicyName: StepFunctionsAccess
+        #   PolicyDocument:
+        #     Version: "2012-10-17"
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - states:StartExecution
+        #         Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:CommitteeTimer
+          
+        - PolicyName: WebSocketManageConnections
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "execute-api:ManageConnections"
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FdistWebSocketApi}/*"
+
+        # - PolicyName: CognitoAccess
+        #   PolicyDocument:
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - cognito-idp:AdminInitiateAuth
+        #           - cognito-idp:AdminGetUser
+        #           - cognito-idp:AdminRespondToAuthChallenge
+        #           - cognito-idp:AdminSetUserPassword
+        #           - cognito-idp:AdminGetUser
+        #           - cognito-idp:ListUsers
+        #         Resource: 
+        #           - !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${FdistUserPool}
+                
+  ApiGatewayCloudWatchLogsRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
         Statement:
           - Effect: Allow
             Principal:
               Service:
-                - lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      # This role is created for future expansion (invoke other services, step functions, etc.)
-      Policies: []
+                - apigateway.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: ApiGatewayLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:DescribeLogGroups"
+                  - "logs:DescribeLogStreams"
+                  - "logs:PutLogEvents"
+                  - "logs:GetLogEvents"
+                  - "logs:FilterLogEvents"
+                Effect: Allow
+                Resource: "*"
+                
+  # Account:
+  #   Type: 'AWS::ApiGateway::Account'
+  #   Properties:
+  #     CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchLogsRole.Arn
+
+  # #######################################################################
+  # # SQS - Message Queue
+  # #######################################################################
+  # SQSLambdaReceiverFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     #FunctionName: !Sub "${ApplicationName}-${ApplicationStageName}-sqslambda"
+  #     CodeUri: functions/core/sqslambdareceiver
+  #     Role: !GetAtt LambdaGeneralRole.Arn
+  #     Handler: app.lambda_handler
+  #     Runtime: python3.13
+  #     Environment:
+  #       Variables:
+  #         DYNAMODB_ENDPOINT: !If
+  #           - IsLocal
+  #           - "http://host.docker.internal:8000"
+  #           - !Ref AWS::NoValue
+  #         # API_URL: "https://api-smartboleta-suite-test.smartboleta.com/qa/v1/sbs/sst/users/88df9100-bc85-11ef-ae5c-01e7ea0e5dfc?"
+  #         # API_KEY: "17SKzjTQHBWxmNXxDAnr6sLcfBhGJQB1f6Vtgxkh"
+  #     Layers:
+  #       - !Ref DynamoDBLayer
+
+  # FdistQueue:
+  #   Type: AWS::SQS::Queue
+  #   Properties:
+  #     QueueName: !Sub "${ApplicationName}-${ApplicationStageName}-queue"
+  #     VisibilityTimeout: 720          # Tiempo en segundos que un mensaje permanece invisible tras ser leído
+  #     MessageRetentionPeriod: 345600   # Retención de mensajes en segundos (4 días por defecto)
+  #     DelaySeconds: 0                  # Retraso en segundos antes de que los mensajes sean visibles
+  #     MaximumMessageSize: 262144       # Tamaño máximo en bytes (256 KB)
+  #     ReceiveMessageWaitTimeSeconds: 0 # Polling corto (0 = inmediato)
+
+  # FdistQueueEventSourceMapping:
+  #   Type: AWS::Lambda::EventSourceMapping
+  #   Properties:
+  #     EventSourceArn: !GetAtt FdistQueue.Arn
+  #     FunctionName: !Ref SQSLambdaReceiverFunction
+  #     BatchSize: 1
+  #     Enabled: true
+  # #######################################################################
+  # # WebSocketApi
+  # ##############################################################################################################################################
+  # FdistWebSocketDomainName:
+  #     Type: AWS::ApiGatewayV2::DomainName
+  #     Properties:
+  #       DomainName: !Sub "ws-${ApplicationName}-${ApplicationStageName}.${DomainBaseName}"
+  #       DomainNameConfigurations:
+  #         - CertificateArn: !Ref CertificateArn
+  #           EndpointType: REGIONAL
+  #           SecurityPolicy: TLS_1_2
+  # FdistWebSocketApiMapping:
+  #     Type: AWS::ApiGatewayV2::ApiMapping
+  #     Properties:
+  #       ApiId: !Ref FdistWebSocketApi
+  #       DomainName: !Ref FdistWebSocketDomainName
+  #       Stage: !Ref FdistWebSocketStage
+  # WebSocketDNSRecord:
+  #     Type: AWS::Route53::RecordSet
+  #     Properties:
+  #       HostedZoneName: safehr.pe.
+  #       Name: !Sub "ws-${ApplicationStageName}.${DomainBaseName}"
+  #       Type: A
+  #       AliasTarget:
+  #         DNSName: !GetAtt FdistWebSocketDomainName.RegionalDomainName
+  #         HostedZoneId: !GetAtt FdistWebSocketDomainName.RegionalHostedZoneId
+  # ConnectionsTable:
+  #   Type: AWS::DynamoDB::Table
+  #   Properties:
+  #     TableName: !Sub "${ApplicationName}-${ApplicationStageName}-connections"
+  #     BillingMode: PAY_PER_REQUEST
+  #     AttributeDefinitions:
+  #       - AttributeName: connectionId
+  #         AttributeType: S
+  #     KeySchema:
+  #       - AttributeName: connectionId
+  #         KeyType: HASH
+
+  # FdistWebSocketApi:
+  #   Type: AWS::ApiGatewayV2::Api
+  #   Properties:
+  #     Name: !Sub "${ApplicationName}-${ApplicationStageName}-ws"
+  #     ProtocolType: WEBSOCKET
+  #     RouteSelectionExpression: "$request.body.action"
+
+  
+  # ConnectFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     Handler: app.lambda_handler
+  #     Runtime: python3.13
+  #     CodeUri: functions/websocket/connect/
+  #     #Handler: app.handler
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref ConnectionsTable
+
+  # DisconnectFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     Handler: app.lambda_handler
+  #     Runtime: python3.13
+  #     CodeUri: functions/websocket/disconnect/
+  #     #Handler: app.handler
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref ConnectionsTable
+  
+  # ConnectIntegration:
+  #   Type: AWS::ApiGatewayV2::Integration
+  #   Properties:
+  #     ApiId: !Ref FdistWebSocketApi
+  #     IntegrationType: AWS_PROXY
+  #     IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations
+  
+  # DisconnectIntegration:
+  #   Type: AWS::ApiGatewayV2::Integration
+  #   Properties:
+  #     ApiId: !Ref FdistWebSocketApi
+  #     IntegrationType: AWS_PROXY
+  #     IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations
+  # # Rutas WebSocket
+  # ConnectRoute:
+  #   Type: AWS::ApiGatewayV2::Route
+  #   Properties:
+  #     ApiId: !Ref FdistWebSocketApi
+  #     RouteKey: $connect
+  #     OperationName: ConnectRoute
+  #     Target: !Sub "integrations/${ConnectIntegration.IntegrationId}"
+    
+  # DisconnectRoute:
+  #   Type: AWS::ApiGatewayV2::Route
+  #   Properties:
+  #     ApiId: !Ref FdistWebSocketApi
+  #     RouteKey: $disconnect
+  #     OperationName: DisconnectRoute
+  #     Target: !Sub "integrations/${DisconnectIntegration.IntegrationId}"
+  
+  # # Permitir a API Gateway invocar ConnectFunction
+  # ConnectFunctionPermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     Action: lambda:InvokeFunction
+  #     FunctionName: !Ref ConnectFunction
+  #     Principal: apigateway.amazonaws.com
+  #     SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SbsWebSocketApi}/*/$connect"
+
+  # # Permitir a API Gateway invocar DisconnectFunction
+  # DisconnectFunctionPermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     Action: lambda:InvokeFunction
+  #     FunctionName: !Ref DisconnectFunction
+  #     Principal: apigateway.amazonaws.com
+  #     SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SbsWebSocketApi}/*/$disconnect"
+  
+  # # Permitir a DynamoDB Stream invocar la función CollaboratorStreamFunction
+  # CollaboratorStreamFunctionPermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     Action: lambda:InvokeFunction
+  #     FunctionName: !Ref CollaboratorStreamFunction
+  #     Principal: dynamodb.amazonaws.com
+  #     SourceArn: !GetAtt CollaboratorsTable.StreamArn 
+
+  # # Deployment de la API WebSocket
+  # SbsWebSocketDeployment:
+  #   Type: AWS::ApiGatewayV2::Deployment
+  #   DependsOn:
+  #     - ConnectRoute
+  #     - DisconnectRoute
+  #   Properties:
+  #     ApiId: !Ref SbsWebSocketApi
+
+  # # Stage de la API WebSocket
+  # SbsWebSocketStage:
+  #   Type: AWS::ApiGatewayV2::Stage
+  #   Properties:
+  #     StageName: !Ref ApplicationStageName  # por ejemplo "dev" o "sst-dev"
+  #     DeploymentId: !Ref SbsWebSocketDeployment
+  #     ApiId: !Ref SbsWebSocketApi
+
+  # CollaboratorStreamFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/websocket/notify/
+  #     Handler: app.lambda_handler
+  #     Runtime: python3.13
+  #     #Handler: app.handler
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref ConnectionsTable
+  #       - Statement:
+  #           - Effect: Allow
+  #             Action:
+  #               - "execute-api:ManageConnections"
+  #             Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SbsWebSocketApi.ApiId}/${ApplicationStageName}/*/@connections/*"
+  #     Environment:
+  #       Variables:
+  #         CONNECTIONS_TABLE: !Ref ConnectionsTable
+  #         WS_ENDPOINT: !Sub "https://${SbsWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${ApplicationStageName}"
+  #     Events:
+  #       CollaboratorStream:
+  #         Type: DynamoDB
+  #         Properties:
+  #           Stream: !GetAtt CollaboratorsTable.StreamArn
+  #           StartingPosition: LATEST
+  
+  # #Table Colaborator
+  # UserTable:
+  #   Type: AWS::DynamoDB::Table
+  #   DeletionPolicy: Retain
+  #   Properties:
+  #     TableName: !Sub "${ApplicationName}-${ApplicationStageName}-user"
+  #     BillingMode: PAY_PER_REQUEST
+  #     StreamSpecification:
+  #       StreamViewType: NEW_AND_OLD_IMAGES
+  #     AttributeDefinitions:
+  #       - AttributeName: userId
+  #         AttributeType: S
+  #       - AttributeName: companyId
+  #         AttributeType: S
+  #       - AttributeName: documentId
+  #         AttributeType: S
+  #       - AttributeName: areaId
+  #         AttributeType: S
+  #       - AttributeName: dateCreate
+  #         AttributeType: N
+  #       - AttributeName: roleId             # 🆕 FALTA ESTO
+  #         AttributeType: S          
+  #     KeySchema:
+  #       - AttributeName: userId
+  #         KeyType: HASH
+  #     GlobalSecondaryIndexes:
+  #       - IndexName: gsiUserByCompany
+  #         KeySchema:
+  #           - AttributeName: companyId
+  #             KeyType: HASH
+  #           - AttributeName: dateCreate
+  #             KeyType: RANGE
+  #         Projection:
+  #           ProjectionType: ALL
+  #       - IndexName: gsiUserByDocument
+  #         KeySchema:
+  #           - AttributeName: documentId
+  #             KeyType: HASH
+  #           - AttributeName: userId
+  #             KeyType: RANGE
+  #         Projection:
+  #           ProjectionType: ALL
+  #       - IndexName: gsiUserByArea
+  #         KeySchema:
+  #           - AttributeName: areaId
+  #             KeyType: HASH
+  #           - AttributeName: dateCreate
+  #             KeyType: RANGE
+  #         Projection:
+  #           ProjectionType: ALL
+  #       - IndexName: gsiUserByRole   # 🆕 NUEVO índice
+  #         KeySchema:
+  #           - AttributeName: roleId
+  #             KeyType: HASH
+  #         Projection:
+  #           ProjectionType: ALL
+  #     SSESpecification:
+  #       SSEEnabled: True
+
 
 Outputs:
-  ApiEndpoint:
-    Description: "Invoke URL for the converter API"
-    Value: !Sub 'https://${ServerlessApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
-  ConverterFunctionArn:
-    Description: "Lambda function ARN"
-    Value: !GetAtt LibreofficeConverterFunction.Arn
+  # ApiEndpoint:
+  #   Description: "Invoke URL for the converter API"
+  #   Value: !Sub 'https://${ServerlessApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
+  # ConverterFunctionArn:
+  #   Description: "Lambda function ARN"
+  #   Value: !GetAtt LibreofficeConverterFunction.Arn

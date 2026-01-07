@@ -150,7 +150,7 @@ Resources:
                 - cd backend/sam
                 - sam build --parallel --cached --config-env dev
                 - echo "Packaging SAM application..."
-                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml 
           cache:
             paths:
               - '/root/.cache/pip/**/*'
@@ -199,7 +199,7 @@ Resources:
                 - cd backend/sam
                 - sam build --parallel --cached --config-env qa
                 - echo "Packaging SAM application..."
-                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml 
           cache:
             paths:
               - '/root/.cache/pip/**/*'
@@ -248,7 +248,7 @@ Resources:
                 - cd backend/sam
                 - sam build --parallel --cached --config-env prod
                 - echo "Packaging SAM application..."
-                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml 
           cache:
             paths:
               - '/root/.cache/pip/**/*'
