@@ -150,7 +150,7 @@ Resources:
                 - cd backend/sam
                 - sam build --parallel --cached --config-env dev
                 - echo "Packaging SAM application..."
-                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml 
           cache:
             paths:
               - '/root/.cache/pip/**/*'
@@ -199,7 +199,7 @@ Resources:
                 - cd backend/sam
                 - sam build --parallel --cached --config-env qa
                 - echo "Packaging SAM application..."
-                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml 
           cache:
             paths:
               - '/root/.cache/pip/**/*'
@@ -248,7 +248,7 @@ Resources:
                 - cd backend/sam
                 - sam build --parallel --cached --config-env prod
                 - echo "Packaging SAM application..."
-                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml --image-repository $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/libreoffice-converter
+                - sam package --s3-bucket $S3_BUCKET --output-template-file packaged.yaml 
           cache:
             paths:
               - '/root/.cache/pip/**/*'
@@ -286,7 +286,7 @@ Resources:
               commands:
                 - echo "Deploying to dev environment..."
                 - cd backend/sam
-                - sam deploy -t packaged.yaml --config-env dev --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
+                - sam deploy -t packaged.yaml --stack-name fourdist-dev --config-env dev --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset 
 
   QADeployProject:
     Type: AWS::CodeBuild::Project
@@ -314,7 +314,7 @@ Resources:
               commands:
                 - echo "Deploying to qa environment..."
                 - cd backend/sam
-                - sam deploy -t packaged.yaml --config-env qa --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
+                - sam deploy -t packaged.yaml --stack-name fourdist-qa --config-env qa --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
 
   ProductionDeployProject:
     Type: AWS::CodeBuild::Project
@@ -342,7 +342,7 @@ Resources:
               commands:
                 - echo "Deploying to prod environment..."
                 - cd backend/sam
-                - sam deploy -t packaged.yaml --config-env prod --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
+                - sam deploy -t packaged.yaml --stack-name fourdist-prod --config-env prod --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset
 
   CodeBuildRole:
     Type: AWS::IAM::Role
