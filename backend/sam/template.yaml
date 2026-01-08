@@ -253,13 +253,13 @@ Resources:
         #           - states:StartExecution
         #         Resource: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:CommitteeTimer
           
-        - PolicyName: WebSocketManageConnections
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "execute-api:ManageConnections"
-                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FdistWebSocketApi}/*"
+        # - PolicyName: WebSocketManageConnections
+        #   PolicyDocument:
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - "execute-api:ManageConnections"
+        #         Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FdistWebSocketApi}/*"
 
         # - PolicyName: CognitoAccess
         #   PolicyDocument:
