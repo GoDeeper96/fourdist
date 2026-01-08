@@ -15,12 +15,12 @@ Globals:
       Variables:
         application: !Ref ApplicationName
         stage: !Ref ApplicationStageName
-    Api:
+  Api:
       TracingEnabled: true
       Cors:
         AllowMethods: "'*'"
         AllowHeaders: "'*'"
-        AllowOrigin: "'*'"
+        AllowOrigin: "'*'"  
 
 Parameters:
   ApplicationName:
