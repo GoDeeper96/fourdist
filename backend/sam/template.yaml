@@ -35,9 +35,9 @@ Parameters:
     Type: String
     Default: fordist.com
     Description: "Dominio base (ejemplo: fordist.com)"
-  ArtifactBucket:
-    Type: String
-    Description: S3 bucket used by the pipeline / function for temporary storage
+  # ArtifactBucket:
+  #   Type: String
+  #   Description: S3 bucket used by the pipeline / function for temporary storage
   CertificateArn:
     Type: String
     Default:  arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4
