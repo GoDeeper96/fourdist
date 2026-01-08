@@ -574,11 +574,31 @@ Resources:
   #     SSESpecification:
   #       SSEEnabled: True
 
-
 Outputs:
-  # ApiEndpoint:
-  #   Description: "Invoke URL for the converter API"
-  #   Value: !Sub 'https://${ServerlessApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
-  # ConverterFunctionArn:
-  #   Description: "Lambda function ARN"
-  #   Value: !GetAtt LibreofficeConverterFunction.Arn
+  ApiGatewayId:
+    Description: "API Gateway ID"
+    Value: !Ref FdistApiGateway
+
+  ApiGatewayInvokeUrl:
+    Description: "Default invoke URL for the API Gateway stage"
+    Value: !Sub "https://${FdistApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${ApplicationStageName}"
+
+  ApiCustomDomainName:
+    Description: "Custom domain name for the API"
+    Value: !Sub "api-${ApplicationName}-${ApplicationStageName}.${DomainBaseName}"
+
+  ApiCustomDomainBasePath:
+    Description: "Base path mapping used in the custom domain"
+    Value: !Ref ApplicationStageName
+
+  GeneralBucketName:
+    Description: "S3 bucket for general assets (logos, files, etc)"
+    Value: !Ref GeneralBucket
+
+  GeneralBucketArn:
+    Description: "ARN of the general S3 bucket"
+    Value: !GetAtt GeneralBucket.Arn
+
+  LambdaExecutionRoleArn:
+    Description: "IAM role used by Lambda functions"
+    Value: !GetAtt LambdaGeneralRole.Arn
