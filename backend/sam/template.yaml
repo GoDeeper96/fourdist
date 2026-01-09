@@ -302,7 +302,28 @@ Resources:
                   - "logs:FilterLogEvents"
                 Effect: Allow
                 Resource: "*"
-                
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/core/test/
+      Role: !GetAtt LambdaGeneralRole.Arn
+      Handler: app.lambda_handler
+      Runtime: python3.13
+      # Environment:
+      #   Variables:
+      #     DYNAMODB_ENDPOINT: !If
+      #       - IsLocal
+      #       - "http://host.docker.internal:8000"
+      #       - !Ref AWS::NoValue
+      # Layers:
+      #   - !Ref DynamoDBLayer 
+      Events:
+        CheckHealth:
+          Type: Api
+          Properties:
+            Path: /core/user/check
+            Method: get
+            RestApiId: !Ref FdistApiGateway             
   # Account:
   #   Type: 'AWS::ApiGateway::Account'
   #   Properties:
