@@ -324,10 +324,10 @@ Resources:
             Path: /core/user/check
             Method: get
             RestApiId: !Ref FdistApiGateway             
-  # Account:
-  #   Type: 'AWS::ApiGateway::Account'
-  #   Properties:
-  #     CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchLogsRole.Arn
+  Account:
+    Type: 'AWS::ApiGateway::Account'
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchLogsRole.Arn
 
   # #######################################################################
   # # SQS - Message Queue
