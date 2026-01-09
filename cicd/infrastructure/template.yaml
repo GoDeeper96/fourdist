@@ -435,6 +435,8 @@ Resources:
                 ConnectionArn: !Ref GitHubConnectionArn
                 FullRepositoryId: !Ref GitHubRepoName
                 BranchName: develop
+                OutputArtifactFormat: CODE_ZIP
+                DetectChanges: true   
               Namespace: SourceVariables
               RunOrder: 1
         - Name: Build
@@ -516,6 +518,7 @@ Resources:
                 ConnectionArn: !Ref GitHubConnectionArn
                 FullRepositoryId: !Ref GitHubRepoName
                 BranchName: qa
+                DetectChanges: true
                 OutputArtifactFormat: CODE_ZIP
         - Name: Build
           Actions:
@@ -594,6 +597,7 @@ Resources:
                 ConnectionArn: !Ref GitHubConnectionArn
                 FullRepositoryId: !Ref GitHubRepoName
                 BranchName: main
+                DetectChanges: true
                 OutputArtifactFormat: CODE_ZIP
         - Name: Build
           Actions:
