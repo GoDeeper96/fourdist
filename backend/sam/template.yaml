@@ -47,10 +47,10 @@ Conditions:
   IsDev: !Equals [!Ref ApplicationStageName, "dev"]
   IsProd: !Equals [!Ref ApplicationStageName, "prod"]
   IsLocal: !Equals [!Ref ApplicationStageName, "local"]
-  IsProd: !Equals [ !Ref ApplicationStageName, "Prod"]
-  IsNonProd: !Or
-    - !Equals [ !Ref ApplicationStageName, "dev" ]
-    - !Equals [ !Ref ApplicationStageName, "qa" ]
+  # IsProd: !Equals [ !Ref ApplicationStageName, "Prod"]
+  # IsNonProd: !Or
+  #   - !Equals [ !Ref ApplicationStageName, "dev" ]
+  #   - !Equals [ !Ref ApplicationStageName, "qa" ]
 
 
 Resources:
