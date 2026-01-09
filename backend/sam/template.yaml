@@ -305,7 +305,7 @@ Resources:
   UserFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: functions/core/test/
+      CodeUri: functions/core/user/
       Role: !GetAtt LambdaGeneralRole.Arn
       Handler: app.lambda_handler
       Runtime: python3.13
