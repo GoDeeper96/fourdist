@@ -6,7 +6,10 @@ region = "us-west-2"
 resolve_s3 = true
 capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = true
-parameter_overrides = "ApplicationName=\"distribution\" ApplicationStageName=\"dev\" CertificateArn=\"arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4\""
+parameter_overrides = """
+ApplicationName="distribution"
+ApplicationStageName="dev"
+CertificateArn="arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4"
 """
 
 [qa.deploy.parameters]
@@ -15,7 +18,10 @@ region = "us-west-2"
 resolve_s3 = true
 capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = true
-parameter_overrides = "ApplicationName=\"distribution\" ApplicationStageName=\"qa\" CertificateArn=\"arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4\""
+parameter_overrides = """
+ApplicationName="distribution"
+ApplicationStageName="qa"
+CertificateArn="arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4"
 """
 
 [prod.deploy.parameters]
@@ -24,5 +30,8 @@ region = "us-west-2"
 resolve_s3 = true
 capabilities = "CAPABILITY_NAMED_IAM"
 confirm_changeset = true
-parameter_overrides = "ApplicationName=\"distribution\" ApplicationStageName=\"prod\" CertificateArn=\"arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4\""
+parameter_overrides = """
+ApplicationName="distribution"
+ApplicationStageName="prod"
+CertificateArn="arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4"
 """
