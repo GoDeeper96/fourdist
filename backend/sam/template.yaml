@@ -54,6 +54,17 @@ Conditions:
 
 
 Resources:
+
+  FdistApiDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: fordist.com.
+      Name: !Sub api-${ApplicationName}-${ApplicationStageName}.${DomainBaseName}
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt FdistApiGateway.DomainName.RegionalDomainName
+        HostedZoneId: !GetAtt FdistApiGateway.DomainName.RegionalHostedZoneId 
+        
   FdistApiGateway:
     Type: AWS::Serverless::Api
     Properties:
@@ -105,15 +116,7 @@ Resources:
   #     RetentionPolicy: Delete
   #   Metadata:
   #     BuildMethod: python3.13
-  FdistApiDNSRecord:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneName: fordist.com.
-      Name: !Sub api-${ApplicationName}-${ApplicationStageName}.${DomainBaseName}
-      Type: A
-      AliasTarget:
-        DNSName: !GetAtt FdistApiGateway.DomainName.RegionalDomainName
-        HostedZoneId: !GetAtt FdistApiGateway.DomainName.RegionalHostedZoneId 
+  
 
   GeneralBucket:
     Type: AWS::S3::Bucket
