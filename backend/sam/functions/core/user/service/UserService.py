@@ -85,3 +85,17 @@ class UserService():
                 
             except Exception as e:
                 logger.error(f"Error: {e}")
+    def get_healthv6(self, item: Dict[str, Any] = None) -> Tuple[int, Dict[str, Any]]:
+            """Get area by ID"""
+            try:
+                
+                test = "test"
+                
+                return 200, {
+                    "message": "Ok",
+                    "data": test
+                }
+                
+                
+            except Exception as e:
+                logger.error(f"Error: {e}")
