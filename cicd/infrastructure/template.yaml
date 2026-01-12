@@ -286,7 +286,7 @@ Resources:
               commands:
                 - echo "Deploying to dev environment..."
                 - cd backend/sam
-                - sam deploy -t packaged.yaml --stack-name fourdist-dev --config-env dev --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM
+                - sam deploy -t packaged.yaml --stack-name fourdist-dev --config-env dev --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ApplicationName=distribution ApplicationStageName=dev CertificateArn=arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4
 
   QADeployProject:
     Type: AWS::CodeBuild::Project
@@ -314,7 +314,7 @@ Resources:
               commands:
                 - echo "Deploying to qa environment..."
                 - cd backend/sam
-                - sam deploy -t packaged.yaml --stack-name fourdist-qa --config-env qa --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM
+                - sam deploy -t packaged.yaml --stack-name fourdist-qa --config-env qa --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ApplicationName=distribution ApplicationStageName=qa CertificateArn=arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4
 
   ProductionDeployProject:
     Type: AWS::CodeBuild::Project
@@ -342,7 +342,8 @@ Resources:
               commands:
                 - echo "Deploying to prod environment..."
                 - cd backend/sam
-                - sam deploy -t packaged.yaml --stack-name fourdist-prod --config-env prod --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM
+                - sam deploy -t packaged.yaml --stack-name fourdist-prod --config-env prod --resolve-image-repos --no-confirm-changeset --no-fail-on-empty-changeset --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ApplicationName=distribution ApplicationStageName=prod CertificateArn=arn:aws:acm:us-west-2:976193259478:certificate/1d3f3b33-fd87-45e2-99ff-f9d45133bff4
+
 
   CodeBuildRole:
     Type: AWS::IAM::Role
