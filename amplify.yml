@@ -8,7 +8,7 @@ applications:
         build:
           commands:
             - echo "Building environment: $BUILD_ENV"
-            - npm run build:$BUILD_ENV
+            - "npm run build:$BUILD_ENV"
       artifacts:
         baseDirectory: dist
         files:
