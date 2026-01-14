@@ -7,7 +7,6 @@ applications:
             - npm install
         build:
           commands:
-            - echo "Building environment: $BUILD_ENV"
             - "npm run build -- --mode $BUILD_ENV"
       artifacts:
         baseDirectory: dist
